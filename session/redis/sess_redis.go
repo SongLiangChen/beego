@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/astaxie/beego/session"
+	"github.com/SongLiangChen/beego/session"
 
 	"github.com/gomodule/redigo/redis"
 )
