@@ -38,17 +38,18 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 )
 
 // Store contains all data for one session process with specific id.
 type Store interface {
-	Set(key, value interface{}) error     //set session value
-	Get(key interface{}) interface{}      //get session value
-	Delete(key interface{}) error         //delete session value
-	SessionID() string                    //back current sessionID
+	Set(key, value interface{}) error     // set session value
+	Get(key interface{}) interface{}      // get session value
+	Delete(key interface{}) error         // delete session value
+	SessionID() string                    // back current sessionID
 	SessionRelease(w http.ResponseWriter) // release the resource & save data to provider & return the data
-	Flush() error                         //delete all data
+	Flush() error                         // delete all data
 }
 
 // Provider contains global session methods and saved SessionStores.
@@ -59,7 +60,7 @@ type Provider interface {
 	SessionExist(sid string) bool
 	SessionRegenerate(oldsid, sid string) (Store, error)
 	SessionDestroy(sid string) error
-	SessionAll() int //get all active session
+	SessionAll() int // get all active session
 	SessionGC()
 }
 
@@ -76,7 +77,7 @@ func Register(name string, provide Provider) {
 		panic("session: Register provide is nil")
 	}
 	if _, dup := provides[name]; dup {
-		panic("session: Register called twice for provider " + name)
+		return
 	}
 	provides[name] = provide
 }
@@ -96,6 +97,7 @@ type ManagerConfig struct {
 	EnableSidInHTTPHeader   bool   `json:"EnableSidInHTTPHeader"`
 	SessionNameInHTTPHeader string `json:"SessionNameInHTTPHeader"`
 	EnableSidInURLQuery     bool   `json:"EnableSidInURLQuery"`
+	SessionIDPrefix         string `json:"sessionIDPrefix"`
 }
 
 // Manager contains Provider and its configuration.
@@ -151,6 +153,14 @@ func NewManager(provideName string, cf *ManagerConfig) (*Manager, error) {
 		provider,
 		cf,
 	}, nil
+}
+
+func (manager *Manager) GetProvider() Provider {
+	return manager.provider
+}
+
+func (manager *Manager) GetConfig() *ManagerConfig {
+	return manager.config
 }
 
 // getSid retrieves session identifier from HTTP Request.
@@ -210,6 +220,7 @@ func (manager *Manager) SessionStart(w http.ResponseWriter, r *http.Request) (se
 	if err != nil {
 		return nil, err
 	}
+
 	cookie := &http.Cookie{
 		Name:     manager.config.CookieName,
 		Value:    url.QueryEscape(sid),
@@ -282,7 +293,7 @@ func (manager *Manager) SessionRegenerateID(w http.ResponseWriter, r *http.Reque
 	}
 	cookie, err := r.Cookie(manager.config.CookieName)
 	if err != nil || cookie.Value == "" {
-		//delete old cookie
+		// delete old cookie
 		session, _ = manager.provider.SessionRead(sid)
 		cookie = &http.Cookie{Name: manager.config.CookieName,
 			Value:    url.QueryEscape(sid),
@@ -331,7 +342,11 @@ func (manager *Manager) sessionID() (string, error) {
 	if n != len(b) || err != nil {
 		return "", fmt.Errorf("Could not successfully read from the system CSPRNG")
 	}
-	return hex.EncodeToString(b), nil
+	sid := hex.EncodeToString(b)
+	if manager.config.SessionIDPrefix != "" {
+		sid = manager.config.SessionIDPrefix + strconv.FormatInt(time.Now().UnixNano(), 10) + sid
+	}
+	return sid, nil
 }
 
 // Set cookie with https.
